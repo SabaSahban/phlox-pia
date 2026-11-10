@@ -97,7 +97,7 @@ def _fake_http_client(json_body):
     return client, get
 
 
-def test_wikipedia_search_leaks_patient_name(search_modules):
+def test_1(search_modules):
     """A patient's name inside a longer query goes out to Wikipedia untouched."""
     wiki_mod, _ = search_modules
     client, get = _fake_http_client({"query": {"search": []}})
@@ -108,33 +108,40 @@ def test_wikipedia_search_leaks_patient_name(search_modules):
         )
 
     sent_query = get.call_args[1]["params"]["srsearch"]
-    print(f"\nWikipedia query sent: '{sent_query}'")
+    print(f"\n[Test 1 - Wikipedia Name Leak]")
+    print("-" * 30)
+    print(f"search: '{sent_query}'")
     assert "Rafa Galvez" in sent_query
 
 
-def test_wikipedia_fallback_leaks_raw_phi(search_modules):
+def test_2(search_modules):
     """When sanitization leaves nothing usable, the raw input is sent as-is."""
     wiki_mod, _ = search_modules
     client, get = _fake_http_client({"query": {"search": []}})
 
     with patch.object(wiki_mod.httpx, "AsyncClient", return_value=client):
-        asyncio.run(wiki_mod.search_wikipedia("UR 1234567 14/05/1978"))
+        asyncio.run(wiki_mod.search_wikipedia("UR 1234567 01/01/2000"))
 
     sent_query = get.call_args[1]["params"]["srsearch"]
-    print(f"\nWikipedia fallback query sent: '{sent_query}'")
-    assert sent_query == "UR 1234567 14/05/1978"
+    print(f"\n[Test 2 - Wikipedia Fallback PHI Leak]")
+    print("-" * 30)
+    print(f"search: '{sent_query}'")
+    assert sent_query == "UR 1234567 01/01/2000"
 
 
-def test_pubmed_search_leaks_patient_name(search_modules):
+def test_3(search_modules):
     """Same name leak as above, but through the PubMed search path."""
     _, pubmed_mod = search_modules
     client, get = _fake_http_client({"esearchresult": {"idlist": []}})
 
     with patch.object(pubmed_mod.httpx, "AsyncClient", return_value=client):
         asyncio.run(
-            pubmed_mod.search_pubmed("lower back pain treatment for Rafa Galvez 2024")
+            pubmed_mod.search_pubmed("lower back pain treatment for Rafa Galvez 2026")
         )
 
     sent_term = get.call_args[1]["params"]["term"]
-    print(f"\nPubMed term sent: '{sent_term}'")
+
+    print(f"\n[Test 3 - PubMed Name Leak]")
+    print("-" * 30)
+    print(f" term: '{sent_term}'")
     assert "Rafa Galvez" in sent_term

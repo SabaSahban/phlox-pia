@@ -82,7 +82,7 @@ def test_4():
     returns the raw, unredacted string.
     """
 
-    pure_phi_query = "UR 1234567 14/05/1978 0412 345 678"
+    pure_phi_query = "UR 1234567 14/05/1978 0490 20 20 20"
     result = sanitize_query_for_external_search(pure_phi_query)
 
     print(f"\n[Test 4 - Pure PHI Fallback Bug]")
@@ -95,7 +95,7 @@ def test_4():
 
 def test_5():
     """
-    If `patient_context` is provided but the query consists only of the patient's name, it scrubs to an empty string,
+    If `patient_context` is provided but the query consists only of the patient's name, it turns into an empty string,
     which then the sanitization pipeline returns the original, unredacted query.
     """
 
