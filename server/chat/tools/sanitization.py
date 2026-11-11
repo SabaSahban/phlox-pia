@@ -12,94 +12,59 @@ logger = logging.getLogger(__name__)
 
 
 def sanitize_query_for_external_search(
-    query: str, patient_context: dict[str, Any] | None = None
+    query: str, patient_context: dict | None = None
 ) -> str:
-    """Remove potential PHI from search queries before sending to external services.
+    """Sanitize a search query to prevent leaking PHI to external APIs."""
+    if not query:
+        return ""
 
-    This is a defense-in-depth measure to prevent accidental PHI leakage even if
-    the LLM includes it in search queries despite prompt instructions.
-
-    Args:
-        query: The original search query
-        patient_context: Optional dict with patient info to specifically remove
-            (ur_number, name, etc.)
-
-    Returns:
-        Sanitized query string with PHI patterns removed
-    """
     sanitized = query
 
-    # Remove common PHI patterns
-    # UR numbers (various formats)
-    sanitized = re.sub(r"\bUR\s*[:#]?\s*\d{4,}\b", "", sanitized, flags=re.IGNORECASE)
-    sanitized = re.sub(r"\bUR\s*[:#]?\s*[A-Z]?\d{4,}[A-Z]?\b", "", sanitized, flags=re.IGNORECASE)
-
-    # Medical record numbers
-    sanitized = re.sub(r"\bMRN\s*[:#]?\s*\d+\b", "", sanitized, flags=re.IGNORECASE)
-
-    # Dates of birth (various formats)
-    sanitized = re.sub(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", "", sanitized)
-    sanitized = re.sub(r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b", "", sanitized)
-
-    # Phone numbers
-    sanitized = re.sub(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b", "", sanitized)
-    sanitized = re.sub(r"\b\+?\d{1,3}[-.\s]?\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{4}\b", "", sanitized)
-    # Australian formats (mobile 04XX XXX XXX, landline 0X XXXX XXXX)
-    sanitized = re.sub(r"\b0?4\d{2}[-.\s]?\d{3}[-.\s]?\d{3}\b", "", sanitized)
-    sanitized = re.sub(r"\b0\d[-.\s]?\d{4}[-.\s]?\d{4}\b", "", sanitized)
-
-    # Email addresses
-    sanitized = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "", sanitized)
-
-    # Addresses (simple pattern for street addresses)
-    sanitized = re.sub(
-        r"\b\d+\s+[A-Za-z]+\s+(Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|Court|Ct|Place|Pl)\b",
-        "",
-        sanitized,
-        flags=re.IGNORECASE,
-    )
-
-    # Medicare/health card numbers (Australian format)
-    sanitized = re.sub(r"\b\d{4}\s?\d{4,5}\s?\d{1,2}\b", "", sanitized)
-
-    # Remove specific patient context if provided
+    # 1. Strip patient name and UR number if context is provided
     if patient_context:
-        if patient_context.get("ur_number"):
-            sanitized = sanitized.replace(patient_context["ur_number"], "")
-        if patient_context.get("name"):
-            # Remove each part of the name
-            for name_part in patient_context["name"].split():
-                sanitized = re.sub(
-                    rf"\b{re.escape(name_part)}\b", "", sanitized, flags=re.IGNORECASE
-                )
+        name = patient_context.get("name")
+        if name:
+            for part in name.split():
+                if len(part) > 1:
+                    sanitized = re.sub(
+                        rf"\b{re.escape(part)}\b", "", sanitized, flags=re.IGNORECASE
+                    )
+        ur_number = patient_context.get("ur_number")
+        if ur_number:
+            sanitized = re.sub(
+                rf"\b{re.escape(str(ur_number))}\b", "", sanitized, flags=re.IGNORECASE
+            )
 
-    # Clean up extra whitespace and punctuation
-    sanitized = re.sub(r"\s+", " ", sanitized)
-    sanitized = re.sub(r"^[\s,-]+|[\s,-]+$", "", sanitized)
+    # 2. General PHI regex patterns (dates, MRNs, phones, emails)
+    patterns = [
+        r"\b(?:UR|MRN)[\s#:]*\d+\b",
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
+        r"\b(?:\+?61|0)[2-478](?:[ -]?\d){8}\b",
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+    ]
+    for pattern in patterns:
+        sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE)
 
-    if sanitized != query:
-        logger.info(f"Sanitized search query: '{query}' -> '{sanitized}'")
-
-    return sanitized.strip() or query  # Return original if sanitization empties it
-
-
-def sanitize_pubmed_query(query: str) -> str:
-    """Sanitize a PubMed query: strip PHI, then remove standalone years.
-
-
-
-    Args:
-        query: The raw search query
-
-    Returns:
-        Sanitized query with PHI patterns and standalone years removed
-    """
-
-    sanitized = sanitize_query_for_external_search(query)
-
-    sanitized = re.sub(r"(?<!\S)(20[0-2][0-9]|19[8-9][0-9])(?!\S)", "", sanitized)
-
-    # Clean up extra whitespace that may result from removal
+    # Clean up excess whitespace
     sanitized = re.sub(r"\s+", " ", sanitized).strip()
 
+    # REMEDIATION (Bug 2): Fail-safe default instead of `or query`
+    return sanitized
+
+
+def sanitize_pubmed_query(query: str, patient_context: dict | None = None) -> str:
+    """Sanitize a PubMed search query, removing PHI and non-MeSH metadata."""
+    if not query:
+        return ""
+
+    # REMEDIATION (Bug 1): Run standard PHI sanitization with patient_context first
+    sanitized = sanitize_query_for_external_search(
+        query, patient_context=patient_context
+    )
+
+    # PubMed-specific stripping (e.g., bare 4-digit years)
+    sanitized = re.sub(r"\b(19|20)\d{2}\b", "", sanitized)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+
+    # Fail-safe return
     return sanitized
