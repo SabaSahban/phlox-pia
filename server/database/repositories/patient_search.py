@@ -186,15 +186,28 @@ def search_patients_aggregate(
 
 
 def get_patient_name_index() -> list[dict[str, Any]]:
-    """Return (ur_number, first_name, last_name) for every patient profile."""
+    """Return name/UR candidates only for profiles the user can access."""
     try:
+        _, scope_params = scoped("created_by")
+        access_sql = ""
+        params = []
+        # Include profiles created by the clinician or linked through an encounter.
+        if scope_params:
+            uid = scope_params[0]
+            access_sql = (
+                " AND (p.created_by = ? OR EXISTS (SELECT 1 FROM encounters e "
+                "WHERE e.ur_number = p.ur_number AND e.created_by = ?))"
+            )
+            params = [uid, uid]
         with get_db().read() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT ur_number, first_name, last_name
-                FROM patient_profiles
+                FROM patient_profiles p
                 WHERE ur_number IS NOT NULL AND ur_number != ''
-                """
+                {access_sql}
+                """,  # nosec B608 - only static SQL fragments; values are parameters
+                params,
             )
             return [
                 {
