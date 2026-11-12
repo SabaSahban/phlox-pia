@@ -2,11 +2,11 @@
 
 import uuid
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from server.api import auth, letter, patient
 from server.database.core.connection import get_db
 from server.database.repositories import encounter, users
@@ -66,8 +66,8 @@ def api(monkeypatch):
     identity_cache.invalidate()
 
 
-def _new_patient(**changes):
-    fields = {
+def _new_patient(**changes: Any) -> Patient:
+    fields: dict[str, Any] = {
         "name": "Example, Alice",
         "first_name": "Alice",
         "last_name": "Example",

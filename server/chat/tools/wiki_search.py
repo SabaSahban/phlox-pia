@@ -22,25 +22,24 @@ logger = logging.getLogger(__name__)
 WIKIPEDIA_API_BASE = "https://en.wikipedia.org/w/api.php"
 
 
-async def search_wikipedia(query: str, max_results: int = 3) -> list[dict]:
-    """Search Wikipedia for articles matching the query.
+async def search_wikipedia(
+    query: str, max_results: int = 3, patient_context: dict | None = None
+) -> list[dict]:
+    # Pass patient_context down to the sanitizer
+    query = sanitize_query_for_external_search(query, patient_context=patient_context)
 
-    Args:
-        query: The search query
-        max_results: Maximum number of results to return
+    # Pre-flight request abatement: Do NOT make an outbound network call if query is empty
+    if not query:
+        logger.info(
+            "Search query scrubbed completely; aborting outbound Wikipedia request."
+        )
+        return []
 
-    Returns:
-        List of article dictionaries with title, extract, url
-    """
-    query = sanitize_query_for_external_search(query)
-
-    # Wikipedia API requires a User-Agent header
     headers = {
         "User-Agent": "PhloxMedicalBot/1.0 (https://github.com/phlox-medical; bot@phlox.example)"
     }
 
     async with httpx.AsyncClient() as client:
-        # Step 1: Search for article titles
         search_response = await client.get(
             WIKIPEDIA_API_BASE,
             params={
@@ -58,7 +57,6 @@ async def search_wikipedia(query: str, max_results: int = 3) -> list[dict]:
         if not search_results:
             return []
 
-        # Step 2: Get extracts (summaries) for each article
         titles = [result["title"] for result in search_results[:max_results]]
         extracts_response = await client.get(
             WIKIPEDIA_API_BASE,
@@ -67,7 +65,7 @@ async def search_wikipedia(query: str, max_results: int = 3) -> list[dict]:
                 "prop": "extracts",
                 "exintro": True,
                 "explaintext": True,
-                "exsentences": 5,  # Get first 5 sentences
+                "exsentences": 5,
                 "titles": "|".join(titles),
                 "format": "json",
             },
@@ -98,68 +96,58 @@ async def execute(
     _message_list: list,
     _context_question_options: dict[str, Any],
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Execute the Wikipedia search tool.
-
-    Args:
-        tool_call: The tool call to execute
-        llm_client: The LLM client instance
-        config: The configuration dictionary
-        message_list: The current message list
-        context_question_options: The context question options
-
-    Yields:
-        Dict[str, Any]: Streaming response chunks
-    """
     logger.info("Executing web_search (Wikipedia) tool...")
     yield status_message("Searching Wikipedia...")
 
     function_arguments = parse_tool_args(tool_call)
-
     query = function_arguments.get("query", "")
     max_results = function_arguments.get("max_results", 3)
 
-    # Sanitize query to remove potential PHI
-    query = sanitize_query_for_external_search(query)
+    # Extract patient context from configuration or runtime options if available
+    patient_context = _config.get("patient_context") or _context_question_options.get(
+        "patient_context"
+    )
+
+    # Sanitize query using active context
+    query = sanitize_query_for_external_search(query, patient_context=patient_context)
 
     citations: list[dict] = []
     result_content: str = ""
 
     if not query:
-        logger.info("No query provided for web search")
-        result_content = "No query provided. Please specify a search query."
+        logger.info("No valid query remaining after sanitization; aborting web search.")
+        result_content = (
+            "Query contained only protected information or was empty. Search aborted."
+        )
     else:
         try:
-            logger.info(f"Searching Wikipedia for: '{query}'")
-            articles = await search_wikipedia(query, max_results)
-
+            articles = await search_wikipedia(
+                query, max_results, patient_context=patient_context
+            )
             if not articles:
                 result_content = f"No Wikipedia articles found for query: '{query}'"
-                logger.info("No Wikipedia articles found")
             else:
-                formatted = []
-                for i, article in enumerate(articles):
-                    logger.info(f"Article {i + 1} extract length: {len(article['extract'])} chars")
-                    parts = [f"[{i + 1}] Title: {article['title']}"]
-                    if article.get("extract"):
-                        parts.append(f"Summary: {article['extract']}")
-                    parts.append(f"URL: {article['url']}")
-                    formatted.append("\n".join(parts))
-
-                    citations.append(
-                        {
-                            "type": "wiki",
-                            "title": article["title"],
-                            "url": article["url"],
-                            "snippet": article.get("extract", ""),
-                        }
-                    )
-
-                result_content = "Found the following relevant articles:\n\n" + "\n\n---\n\n".join(
-                    formatted
+                formatted = [
+                    f"[{i + 1}] Title: {art['title']}\nSummary: {art.get('extract', '')}\nURL: {art['url']}"
+                    for i, art in enumerate(articles)
+                ]
+                citations = [
+                    {
+                        "type": "wiki",
+                        "title": art["title"],
+                        "url": art["url"],
+                        "snippet": art.get("extract", ""),
+                    }
+                    for art in articles
+                ]
+                result_content = (
+                    "Found the following relevant articles:\n\n"
+                    + "\n\n---\n\n".join(formatted)
                 )
-                logger.info(f"Retrieved {len(articles)} Wikipedia articles")
         except Exception as e:
             logger.error(f"Wikipedia search error: {e}")
             result_content = f"Error searching Wikipedia: {str(e)}"
 
-    yield end_message(function_response={"content": result_content, "citations": citations})
+    yield end_message(
+        function_response={"content": result_content, "citations": citations}
+    )

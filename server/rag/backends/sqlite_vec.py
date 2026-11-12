@@ -6,9 +6,14 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
+from typing import TYPE_CHECKING
+
+from server.database.core.encrypted_documents import connect_encrypted_documents
 
 from .base import ChunkData, SearchResult
+
+if TYPE_CHECKING:
+    import sqlcipher3 as sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +36,14 @@ class SqliteVecBackend:
     # Internal helpers
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self._db_path)
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA foreign_keys=ON")
-        db.enable_load_extension(True)
-        self._sqlite_vec.load(db)
-        return db
+        db = connect_encrypted_documents(self._db_path)
+        try:
+            db.enable_load_extension(True)
+            self._sqlite_vec.load(db)
+            return db
+        except Exception:
+            db.close()
+            raise
 
     def _init_schema(self) -> None:
         """Create shared metadata tables if they don't exist."""

@@ -22,6 +22,7 @@ _PHI_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("date", re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b")),
     ("date", re.compile(r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b")),
     # Phone numbers
+    ("phone", re.compile(r"\b(?:\+?61|0)[2-478](?:[ -]?\d){8}\b", re.IGNORECASE)),
     ("phone", re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b")),
     ("phone", re.compile(r"\b\+?\d{1,3}[-.\s]?\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{4}\b")),
     # Australian formats (mobile 04XX XXX XXX, landline 0X XXXX XXXX)
@@ -58,6 +59,9 @@ def sanitize_query_for_external_search(
     Returns:
         Sanitized query string with PHI patterns removed
     """
+    if not query:
+        return ""
+
     sanitized = query
     fired: list[str] = []
 
@@ -70,14 +74,22 @@ def sanitize_query_for_external_search(
     # Remove specific patient context if provided
     if patient_context:
         before_context = sanitized
-        if patient_context.get("ur_number"):
-            sanitized = sanitized.replace(patient_context["ur_number"], "")
-        if patient_context.get("name"):
-            # Remove each part of the name
-            for name_part in patient_context["name"].split():
+        name = patient_context.get("name")
+        if name:
+            for name_part in name.split():
+                if len(name_part) <= 1:
+                    continue
                 sanitized = re.sub(
                     rf"\b{re.escape(name_part)}\b", "", sanitized, flags=re.IGNORECASE
                 )
+        ur_number = patient_context.get("ur_number")
+        if ur_number:
+            sanitized = re.sub(
+                rf"\b{re.escape(str(ur_number))}\b",
+                "",
+                sanitized,
+                flags=re.IGNORECASE,
+            )
         if sanitized != before_context:
             fired.append("patient_context")
 
@@ -94,10 +106,12 @@ def sanitize_query_for_external_search(
             len(sanitized),
         )
 
-    return sanitized.strip() or query  # Return original if sanitization empties it
+    return sanitized.strip()
 
 
-def sanitize_pubmed_query(query: str) -> str:
+def sanitize_pubmed_query(
+    query: str, patient_context: dict[str, Any] | None = None
+) -> str:
     """Sanitize a PubMed query: strip PHI, then remove standalone years.
 
 
@@ -109,9 +123,14 @@ def sanitize_pubmed_query(query: str) -> str:
         Sanitized query with PHI patterns and standalone years removed
     """
 
-    sanitized = sanitize_query_for_external_search(query)
+    if not query:
+        return ""
 
-    sanitized = re.sub(r"(?<!\S)(20[0-2][0-9]|19[8-9][0-9])(?!\S)", "", sanitized)
+    sanitized = sanitize_query_for_external_search(
+        query, patient_context=patient_context
+    )
+
+    sanitized = re.sub(r"\b(19|20)\d{2}\b", "", sanitized)
 
     # Clean up extra whitespace that may result from removal
     sanitized = re.sub(r"\s+", " ", sanitized).strip()

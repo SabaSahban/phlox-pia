@@ -8,6 +8,7 @@ from typing import Any
 
 from server.constants import is_protected_template_key
 from server.database.core.connection import get_db
+from server.database.core.encrypted_documents import connect_encrypted_documents
 from server.utils.identity_cache import identity_cache
 
 logger = logging.getLogger(__name__)
@@ -175,14 +176,12 @@ def claim_unowned(user_id: int) -> None:
 def _claim_unowned_collections(user_id: int) -> None:
     """Claim NULL-owned RAG collections in documents.sqlite. Best-effort."""
     try:
-        import sqlite3 as plain_sqlite
-
         from server.constants import DATA_DIR
 
         db_path = DATA_DIR / "documents.sqlite"
         if not db_path.exists():
             return
-        db = plain_sqlite.connect(str(db_path))
+        db = connect_encrypted_documents(db_path)
         try:
             cols = [r[1] for r in db.execute("PRAGMA table_info(collections)").fetchall()]
             if "owner_id" not in cols:

@@ -3,11 +3,12 @@ Shared connection factory for the documents SQLite database.
 """
 
 import logging
-import sqlite3
 import threading
 from pathlib import Path
 
+import sqlcipher3 as sqlite3
 from server.constants import DATA_DIR
+from server.database.core.encrypted_documents import connect_encrypted_documents
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,7 @@ def get_documents_connection() -> sqlite3.Connection:
         with _simple_lock:
             if _simple_connection is None:
                 DOCUMENTS_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-                conn = sqlite3.connect(
-                    str(DOCUMENTS_DB_PATH),
-                    check_same_thread=False,
-                )
+                conn = connect_encrypted_documents(DOCUMENTS_DB_PATH)
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("PRAGMA foreign_keys=ON")
                 conn.execute("PRAGMA busy_timeout=30000")

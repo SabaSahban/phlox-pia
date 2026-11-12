@@ -35,6 +35,6 @@ def test_pubmed_query_preserves_years_in_disease_names():
     assert "COVID-19" in sanitize_pubmed_query("COVID-19 complications")
 
 
-def test_sanitizer_returns_original_when_emptied():
-    # A query that is entirely PHI must not become an empty outbound query
-    assert sanitize_query_for_external_search("UR 1234567") == "UR 1234567"
+def test_sanitizer_returns_empty_when_emptied():
+    # A query that is entirely PHI must be blocked instead of restored.
+    assert sanitize_query_for_external_search("UR 1234567") == ""
