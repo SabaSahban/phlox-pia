@@ -8,10 +8,19 @@ import sqlcipher3
 from server.database.core.documents_migration import export_encrypted_copy
 
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
-    source = Path("migration_test_plain.sqlite")
+    source = Path(folder) / "migration_test_plain.sqlite"
     destination = Path(folder) / "documents_encrypted.sqlite"
     key = "TEST_MIGRATION_KEY"
 
+    # Create a temporary database with fake medical data.
+    with sqlite3.connect(str(source)) as db:
+        db.execute("CREATE TABLE medical_notes (note TEXT)")
+        db.execute(
+            "INSERT INTO medical_notes (note) VALUES (?)",
+            ("FAKE_PATIENT_MEDICAL_RECORD",),
+        )
+        db.commit()
+        
     # Export using the actual Phlox migration function.
     export_encrypted_copy(source, destination, key)
 
