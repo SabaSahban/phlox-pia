@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from fastapi import HTTPException
 from server.database.core.connection import get_db
 from server.database.repositories.jobs import (
     are_all_jobs_completed,
@@ -11,6 +12,7 @@ from server.database.repositories.jobs import (
 from server.database.repositories.patient import (
     _upsert_profile_with_cursor,
     get_patient_profile,
+    require_profile_access,
 )
 from server.database.repositories.templates import (
     get_persistent_fields,
@@ -69,6 +71,9 @@ def save_patient(patient: Patient) -> int:
         )
 
         with get_db().transaction() as cursor:
+            # Check profile access before creating a new encounter.
+            if patient.ur_number:
+                require_profile_access(cursor, patient.ur_number)
             cursor.execute(
                 """
                 INSERT INTO encounters (
@@ -132,12 +137,17 @@ def update_patient(patient: Patient) -> None:
     """
     try:
         with get_db().transaction() as cursor:
-            # First get existing patient data
+            # Authorize the encounter before reading it or changing any profile.
+            scope_sql, scope_params = scoped("created_by")
             cursor.execute(
-                "SELECT template_data, jobs_list FROM encounters WHERE id = ?",
-                (patient.id,),
+                f"SELECT template_data, jobs_list FROM encounters WHERE id = ?{scope_sql}",
+                (patient.id, *scope_params),
             )
             row = cursor.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            if patient.ur_number:
+                require_profile_access(cursor, patient.ur_number)
 
             # Extract plans for comparison
             current_template_data = {}
@@ -261,6 +271,9 @@ def update_patient(patient: Patient) -> None:
                     *scope_params,
                 ),
             )
+
+            if cursor.rowcount != 1:
+                raise HTTPException(status_code=404, detail="Patient not found")
 
             # Keep the source-of-truth profile in sync with the edited demographics.
             if patient.ur_number:

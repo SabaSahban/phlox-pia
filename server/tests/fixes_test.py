@@ -20,13 +20,14 @@ def _load_search_modules():
 
     Returns (`san_mod`, `wiki_mod`, `pubmed_mod`).
     """
+    repo_root = Path(__file__).resolve().parents[2]
 
     pkg_paths = [
-        ("server", Path(__file__).parent / "server"),
-        ("server.chat", Path(__file__).parent / "server/chat"),
-        ("server.chat.tools", Path(__file__).parent / "server/chat/tools"),
-        ("server.chat.streaming", Path(__file__).parent / "server/chat/streaming"),
-        ("server.chat.models", Path(__file__).parent / "server/chat/models"),
+        ("server", repo_root / "server"),
+        ("server.chat", repo_root / "server/chat"),
+        ("server.chat.tools", repo_root / "server/chat/tools"),
+        ("server.chat.streaming", repo_root / "server/chat/streaming"),
+        ("server.chat.models", repo_root / "server/chat/models"),
     ]
 
     for mod_name, mod_path in pkg_paths:
@@ -38,7 +39,7 @@ def _load_search_modules():
     # load sanitization.py
     san_spec = importlib.util.spec_from_file_location(
         "server.chat.tools.sanitization",
-        Path(__file__).parent / "server/chat/tools/sanitization.py",
+        repo_root / "server/chat/tools/sanitization.py",
     )
     san_mod = importlib.util.module_from_spec(san_spec)
     sys.modules["server.chat.tools.sanitization"] = san_mod
@@ -63,7 +64,7 @@ def _load_search_modules():
     # Load wiki_search.py
     wiki_spec = importlib.util.spec_from_file_location(
         "server.chat.tools.wiki_search",
-        Path(__file__).parent / "server/chat/tools/wiki_search.py",
+        repo_root / "server/chat/tools/wiki_search.py",
     )
     wiki_mod = importlib.util.module_from_spec(wiki_spec)
     sys.modules["server.chat.tools.wiki_search"] = wiki_mod
@@ -72,7 +73,7 @@ def _load_search_modules():
     # Load pubmed_search.py
     pubmed_spec = importlib.util.spec_from_file_location(
         "server.chat.tools.pubmed_search",
-        Path(__file__).parent / "server/chat/tools/pubmed_search.py",
+        repo_root / "server/chat/tools/pubmed_search.py",
     )
     pubmed_mod = importlib.util.module_from_spec(pubmed_spec)
     sys.modules["server.chat.tools.pubmed_search"] = pubmed_mod

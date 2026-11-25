@@ -11,6 +11,8 @@ from server.database.core.migrations import (
     v8_preferred_language,
     v9_policy_keys,
     v10_users,
+    v11_audit_subject_ref,
+    v12_profile_ownership,
 )
 from server.database.core.migrations.runner import run_migrations
 
@@ -25,6 +27,8 @@ MIGRATIONS = {
     8: v8_preferred_language.migrate,
     9: v9_policy_keys.migrate,
     10: v10_users.migrate,
+    11: v11_audit_subject_ref.migrate,
+    12: v12_profile_ownership.migrate,
 }
 
 __all__ = ["run_migrations", "MIGRATIONS"]

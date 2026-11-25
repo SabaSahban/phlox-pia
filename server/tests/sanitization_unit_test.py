@@ -5,12 +5,11 @@ This test file is for the sanitization pipeline. It only tests the in-memory log
 import importlib.util
 from pathlib import Path
 
-# load server/chat/tools/sanitization.py directly without triggering application init
-# triggering __init__.py results in creation of sqlite3 database, which is not needed for our simple test
-_spec = importlib.util.spec_from_file_location(
-    "sanitization",
-    Path(__file__).parent / "server/chat/tools/sanitization.py",
+# parents[0] = server/tests, parents[1] = server, parents[2] = repo root (phlox-pia)
+_SANITIZATION_PATH = (
+    Path(__file__).resolve().parents[2] / "server" / "chat" / "tools" / "sanitization.py"
 )
+_spec = importlib.util.spec_from_file_location("sanitization", _SANITIZATION_PATH)
 _sanitization = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_sanitization)
 
