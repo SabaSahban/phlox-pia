@@ -78,7 +78,6 @@ def parse_pubmed_article(article_elem: ET.Element, pmid: str) -> dict:
     # Get abstract
     abstract_elem = article_elem.find(".//Abstract/AbstractText")
     if abstract_elem is not None:
-        # Abstract text can be in nested elements or direct text
         abstract_parts = []
         if abstract_elem.text:
             abstract_parts.append(abstract_elem.text)
@@ -96,18 +95,26 @@ def parse_pubmed_article(article_elem: ET.Element, pmid: str) -> dict:
     return article_data
 
 
-async def search_pubmed(query: str, max_results: int = 5) -> list[dict]:
+async def search_pubmed(
+    query: str, max_results: int = 5, patient_context: dict | None = None
+) -> list[dict]:
     """Search PubMed for articles matching the query.
 
     Args:
         query: The search query
         max_results: Maximum number of results to return
+        patient_context: Optional patient dictionary containing demographic PHI
 
     Returns:
         List of article dictionaries
     """
-    # Sanitize query to remove standalone years that PubMed interprets as keywords
-    query = sanitize_pubmed_query(query)
+    # Sanitize query using active patient context
+    query = sanitize_pubmed_query(query, patient_context=patient_context)
+
+    # Pre-flight request abatement: abort if query resolved to empty
+    if not query:
+        logger.info("PubMed query scrubbed completely; aborting outbound request.")
+        return []
 
     async with httpx.AsyncClient() as client:
         # Step 1: Search for IDs
@@ -178,20 +185,27 @@ async def execute(
     query = function_arguments.get("query", "")
     max_results = function_arguments.get("max_results", 5)
 
-    # Sanitize query to remove standalone years
-    query = sanitize_pubmed_query(query)
+    # Extract patient context from configuration or runtime options
+    patient_context = _config.get("patient_context") or _context_question_options.get(
+        "patient_context"
+    )
+
+    # Sanitize query to remove standalone years and patient PHI
+    query = sanitize_pubmed_query(query, patient_context=patient_context)
 
     # Track citations for the function response
     citations: list[dict] = []
     result_content: str = ""
 
     if not query:
-        logger.info("No query provided for PubMed search")
-        result_content = "No query provided. Please specify a search query."
+        logger.info("Query was empty or scrubbed of all PHI; aborting PubMed search")
+        result_content = "Query contained only protected health information or was empty. Search aborted."
     else:
         try:
             logger.info(f"Searching PubMed for: '{query}'")
-            articles = await search_pubmed(query, max_results)
+            articles = await search_pubmed(
+                query, max_results, patient_context=patient_context
+            )
 
             if not articles:
                 result_content = f"No PubMed articles found for query: '{query}'"
@@ -202,7 +216,9 @@ async def execute(
                     authors_str = ", ".join(article["authors"])
                     parts = [f"[{i + 1}] Title: {article['title']}"]
                     parts.append(f"Authors: {authors_str}")
-                    parts.append(f"Journal: {article['journal']} ({article['pubdate']})")
+                    parts.append(
+                        f"Journal: {article['journal']} ({article['pubdate']})"
+                    )
                     if article.get("abstract"):
                         logger.info(
                             f"Article {i + 1} abstract length: {len(article['abstract'])} chars"
@@ -238,4 +254,6 @@ async def execute(
             logger.error(f"PubMed search error: {e}")
             result_content = f"Error searching PubMed: {str(e)}"
 
-    yield end_message(function_response={"content": result_content, "citations": citations})
+    yield end_message(
+        function_response={"content": result_content, "citations": citations}
+    )

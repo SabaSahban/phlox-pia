@@ -63,6 +63,8 @@ def get_consent(ur_number: str):
         if consent is None:
             return {"scribe_consent_at": None, "scribe_consent_declined_at": None}
         return JSONResponse(content=consent)
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error fetching scribe consent: {e}")
         raise HTTPException(status_code=500, detail="Internal server error") from e
@@ -74,6 +76,8 @@ def set_consent(request: ScribeConsentRequest):
     try:
         consent = set_scribe_consent(request.ur_number, request.consented)
         return JSONResponse(content=consent)
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error setting scribe consent: {e}")
         raise HTTPException(status_code=500, detail="Internal server error") from e
@@ -125,6 +129,8 @@ async def save_patient_data(request: SavePatientRequest, background_tasks: Backg
         await asyncio.sleep(0.3)
 
         return {"id": note_id}
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error processing patient data: {e}")
         raise HTTPException(status_code=500, detail="Internal server error") from e
